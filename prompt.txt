@@ -1,0 +1,7 @@
+列一个todo list 到todo.md，用zig写一个类似rustup的zig 安装cli
+支持 linux（windows 和 macos 后续再说）
+安装zig到.~/.local/zig
+安装zls到.~/.local/zig
+提示用户添加环境变量
+zls可以用https://github.com/zigtools/release-worker里的api
+zig最新版本可以通过https://ziglang.org/download/index.json获取

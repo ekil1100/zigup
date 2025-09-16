@@ -1,0 +1,21 @@
+# Zig build artifacts
+zig-out/
+zig-cache/
+.zig-cache/
+
+# Logs
+*.log
+
+# Editor settings
+.vscode/
+.idea/
+*.code-workspace
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.*
+
