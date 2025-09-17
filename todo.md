@@ -169,9 +169,18 @@
 ## 13. 路线图（MVP -> v1.0）
 
 - [ ] MVP
-  - [ ] 安装/列出/切换 zig 版本（单平台）
-  - [ ] zls 预构建安装或源码构建（二选一）
-  - [ ] 基本缓存与校验
+  - [ ] Linux x86_64 核心能力
+    - [ ] 初始化仓库骨架（build.zig、src/main.zig、核心子目录）
+    - [ ] CLI 支持 install/uninstall/list/default/which zig
+      - [ ] `zigup install` 默认安装 latest 版本，如果要安装 stable 版本需要使用 `zigup install stable`
+    - [ ] 解析官方下载索引并在本地缓存 Linux x86_64 版本
+      - [ ] 版本可以从 https://ziglang.org/download/index.json 获取
+    - [ ] 下载 + SHA256 校验 + tar.xz 解压 + 缓存命中
+    - [ ] 管理 dist 结构与 symlink，支持默认版本切换与安全卸载
+    - [ ] 提供 zls install/uninstall（预构建包，限制 latest）
+  - [ ] 暂缓范围
+    - [ ] 跨平台/架构、use/pin、自更新、镜像代理
+    - [ ] CLI 进阶体验、CI/发布流程、文档与安全策略拓展
 - [ ] Beta
   - [ ] 三大平台支持
   - [ ] 项目 pin、use、默认版本管理完善
