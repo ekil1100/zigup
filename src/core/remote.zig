@@ -124,9 +124,7 @@ pub fn fetchIndex(
         if (version_value != .string) continue;
         const version_str = version_value.string;
 
-        const platform_value = release_object.get("x86_64-linux") orelse continue;
-        if (platform_value != .object) continue;
-        const platform_object = platform_value.object;
+        const platform_object = findPreferredPlatformObject(release_object) orelse continue;
 
         const tarball_value = platform_object.get("tarball") orelse continue;
         if (tarball_value != .string) continue;
@@ -242,3 +240,101 @@ fn detectKind(tag: []const u8, version: []const u8) ReleaseKind {
     if (std.mem.indexOf(u8, version, "-") != null) return .dev;
     return .stable;
 }
+
+fn findPreferredPlatformObject(release_object: std.json.ObjectMap) ?std.json.ObjectMap {
+    const platform_keys = platformKeyCandidates();
+
+    for (platform_keys) |key| {
+        const platform_value = release_object.get(key) orelse continue;
+        if (platform_value == .object) {
+            return platform_value.object;
+        }
+    }
+
+    return null;
+}
+
+fn platformKeyCandidates() []const []const u8 {
+    const builtin = @import("builtin");
+    return switch (builtin.target.os.tag) {
+        .linux => linuxPlatformKeys(builtin.target.cpu.arch, builtin.target.abi),
+        .macos => macosPlatformKeys(builtin.target.cpu.arch),
+        .windows => windowsPlatformKeys(builtin.target.cpu.arch),
+        else => empty_platform_keys[0..],
+    };
+}
+
+fn linuxPlatformKeys(comptime arch: std.Target.Cpu.Arch, comptime abi: std.Target.Abi) []const []const u8 {
+    return switch (arch) {
+        .x86_64 => if (abi == .musl)
+            linux_x86_64_musl_first_keys[0..]
+        else
+            linux_x86_64_preferred_keys[0..],
+        .aarch64 => if (abi == .musl)
+            linux_aarch64_musl_first_keys[0..]
+        else
+            linux_aarch64_preferred_keys[0..],
+        else => empty_platform_keys[0..],
+    };
+}
+
+fn macosPlatformKeys(comptime arch: std.Target.Cpu.Arch) []const []const u8 {
+    return switch (arch) {
+        .aarch64 => macos_aarch64_keys[0..],
+        .x86_64 => macos_x86_64_keys[0..],
+        else => empty_platform_keys[0..],
+    };
+}
+
+fn windowsPlatformKeys(comptime arch: std.Target.Cpu.Arch) []const []const u8 {
+    return switch (arch) {
+        .aarch64 => windows_aarch64_keys[0..],
+        .x86_64 => windows_x86_64_keys[0..],
+        else => empty_platform_keys[0..],
+    };
+}
+
+const linux_x86_64_preferred_keys = [_][]const u8{
+    "x86_64-linux-gnu",
+    "x86_64-linux-musl",
+    "x86_64-linux",
+};
+
+const linux_x86_64_musl_first_keys = [_][]const u8{
+    "x86_64-linux-musl",
+    "x86_64-linux-gnu",
+    "x86_64-linux",
+};
+
+const linux_aarch64_preferred_keys = [_][]const u8{
+    "aarch64-linux-gnu",
+    "aarch64-linux-musl",
+    "aarch64-linux",
+};
+
+const linux_aarch64_musl_first_keys = [_][]const u8{
+    "aarch64-linux-musl",
+    "aarch64-linux-gnu",
+    "aarch64-linux",
+};
+
+const macos_x86_64_keys = [_][]const u8{
+    "x86_64-macos",
+    "universal-macos",
+};
+
+const macos_aarch64_keys = [_][]const u8{
+    "aarch64-macos",
+    "universal-macos",
+};
+
+const windows_x86_64_keys = [_][]const u8{
+    "x86_64-windows",
+    "x86_64-windows-gnu",
+};
+
+const windows_aarch64_keys = [_][]const u8{
+    "aarch64-windows",
+};
+
+const empty_platform_keys = [_][]const u8{};
