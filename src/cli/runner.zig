@@ -1,7 +1,6 @@
 const std = @import("std");
 const App = @import("../core/app.zig").App;
 const remote = @import("../core/remote.zig");
-const list_mod = @import("../core/list.zig");
 
 pub fn run(allocator: std.mem.Allocator) !void {
     const stdout_file = std.fs.File.stdout();
@@ -30,12 +29,6 @@ pub fn run(allocator: std.mem.Allocator) !void {
         try handleUninstall(&app, rest, stdout_file, stderr_file);
     } else if (std.mem.eql(u8, command, "list")) {
         try handleList(&app, rest, stdout_file, stderr_file);
-    } else if (std.mem.eql(u8, command, "default")) {
-        try handleDefault(&app, rest, stdout_file, stderr_file);
-    } else if (std.mem.eql(u8, command, "which")) {
-        try handleWhich(&app, rest, stdout_file, stderr_file);
-    } else if (std.mem.eql(u8, command, "zls")) {
-        try handleZls(&app, rest, stdout_file, stderr_file);
     } else {
         try printAlloc(app.allocator, stderr_file, "unknown command: {s}\n", .{command});
         try printUsage(app.allocator, stderr_file);
@@ -144,61 +137,6 @@ fn handleList(app: *App, args: [][]const u8, stdout_file: std.fs.File, stderr_fi
     }
 }
 
-fn handleDefault(app: *App, args: [][]const u8, stdout_file: std.fs.File, stderr_file: std.fs.File) !void {
-    if (args.len == 0) {
-        try printAlloc(app.allocator, stderr_file, "usage: zigup default <version>\n", .{});
-        return error.InvalidArguments;
-    }
-    const version = args[0];
-    app.setDefaultZig(version) catch |err| {
-        if (err == error.FileNotFound) {
-            try printAlloc(app.allocator, stderr_file, "zig {s} is not installed\n", .{version});
-            return error.FileNotFound;
-        }
-        return err;
-    };
-    try printAlloc(app.allocator, stdout_file, "set default zig to {s}\n", .{version});
-}
-
-fn handleWhich(app: *App, args: [][]const u8, stdout_file: std.fs.File, stderr_file: std.fs.File) !void {
-    const target = if (args.len == 0) list_mod.WhichTarget.zig else blk: {
-        if (std.mem.eql(u8, args[0], "zig")) break :blk list_mod.WhichTarget.zig;
-        if (std.mem.eql(u8, args[0], "zls")) break :blk list_mod.WhichTarget.zls;
-        try printAlloc(app.allocator, stderr_file, "unknown target: {s}\n", .{args[0]});
-        return error.InvalidArguments;
-    };
-
-    const path_opt = try app.resolveWhich(target);
-    if (path_opt) |path| {
-        defer app.allocator.free(path);
-        try printAlloc(app.allocator, stdout_file, "{s}\n", .{path});
-    } else {
-        try printAlloc(app.allocator, stderr_file, "not configured\n", .{});
-        return error.FileNotFound;
-    }
-}
-
-fn handleZls(app: *App, args: [][]const u8, stdout_file: std.fs.File, stderr_file: std.fs.File) !void {
-    if (args.len == 0) {
-        try printAlloc(app.allocator, stderr_file, "usage: zigup zls <install|uninstall>\n", .{});
-        return error.InvalidArguments;
-    }
-    const sub = args[0];
-    if (std.mem.eql(u8, sub, "install")) {
-        try app.installZlsLatest();
-        try printAlloc(app.allocator, stdout_file, "installed zls latest\n", .{});
-    } else if (std.mem.eql(u8, sub, "uninstall")) {
-        try app.uninstallZlsLatest();
-        try printAlloc(app.allocator, stdout_file, "removed zls latest\n", .{});
-    } else if (std.mem.eql(u8, sub, "which")) {
-        var which_args_array = [_][]const u8{"zls"};
-        const which_args_slice: [][]const u8 = &which_args_array;
-        try handleWhich(app, which_args_slice, stdout_file, stderr_file);
-    } else {
-        try printAlloc(app.allocator, stderr_file, "unknown zls subcommand: {s}\n", .{sub});
-        return error.InvalidArguments;
-    }
-}
 
 fn resolveRelease(index: *const remote.Index, version: []const u8) !*const remote.Release {
     if (std.mem.eql(u8, version, "latest") or std.mem.eql(u8, version, "stable")) {
@@ -220,10 +158,7 @@ fn printUsage(allocator: std.mem.Allocator, file: std.fs.File) !void {
         "zigup commands:\n" ++
             "  install [version] [--default]   Install a Zig release (default latest).\n" ++
             "  uninstall <version>             Remove an installed Zig release.\n" ++
-            "  list [--installed|--remote]     Show installed or remote Zig versions.\n" ++
-            "  default <version>               Set default Zig version.\n" ++
-            "  which [zig|zls]                 Show shim path.\n" ++
-            "  zls <install|uninstall>         Manage ZLS (latest Linux x86_64).\n",
+            "  list [--installed|--remote]     Show installed or remote Zig versions.\n",
         .{},
     );
 }

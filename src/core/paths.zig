@@ -11,7 +11,6 @@ pub const Paths = struct {
     dist: []u8,
     cache: []u8,
     downloads: []u8,
-    zls: []u8,
 
     pub fn init(allocator: std.mem.Allocator) !Paths {
         const home = try std.process.getEnvVarOwned(allocator, "HOME");
@@ -30,8 +29,6 @@ pub const Paths = struct {
         const cache = try cleanup.capture(cache_value);
         const downloads_value = try join(allocator, &.{ cache, "downloads" });
         const downloads = try cleanup.capture(downloads_value);
-        const zls_value = try join(allocator, &.{ root, "zls" });
-        const zls = try cleanup.capture(zls_value);
 
         cleanup.disable();
         return .{
@@ -41,7 +38,6 @@ pub const Paths = struct {
             .dist = dist,
             .cache = cache,
             .downloads = downloads,
-            .zls = zls,
         };
     }
 
@@ -52,7 +48,6 @@ pub const Paths = struct {
         allocator.free(self.dist);
         allocator.free(self.cache);
         allocator.free(self.downloads);
-        allocator.free(self.zls);
         self.* = undefined;
     }
 
@@ -63,7 +58,6 @@ pub const Paths = struct {
         try cwd.makePath(self.dist);
         try cwd.makePath(self.cache);
         try cwd.makePath(self.downloads);
-        try cwd.makePath(self.zls);
     }
 
     pub fn joinOwned(self: *const Paths, allocator: std.mem.Allocator, components: []const []const u8) ![]u8 {
@@ -87,24 +81,12 @@ pub const Paths = struct {
         return self.joinOwned(allocator, &.{ self.bin, "zig" });
     }
 
-    pub fn shimZlsPath(self: *const Paths, allocator: std.mem.Allocator) ![]u8 {
-        return self.joinOwned(allocator, &.{ self.bin, "zls" });
-    }
-
     pub fn currentVersionFile(self: *const Paths, allocator: std.mem.Allocator) ![]u8 {
         return self.joinOwned(allocator, &.{ self.root, "current" });
     }
 
     pub fn archiveCachePath(self: *const Paths, allocator: std.mem.Allocator, filename: []const u8) ![]u8 {
         return self.joinOwned(allocator, &.{ self.downloads, filename });
-    }
-
-    pub fn zlsVersionDir(self: *const Paths, allocator: std.mem.Allocator, version: []const u8) ![]u8 {
-        return self.joinOwned(allocator, &.{ self.zls, version });
-    }
-
-    pub fn zlsBinaryPath(self: *const Paths, allocator: std.mem.Allocator, version: []const u8) ![]u8 {
-        return self.joinOwned(allocator, &.{ self.zls, version, "bin", "zls" });
     }
 };
 

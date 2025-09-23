@@ -39,10 +39,10 @@ pub fn extractTarXz(
     defer allocator.free(read_buffer);
 
     var file_reader = file.reader(read_buffer);
-    
+
     const decompress_buffer = try allocator.alloc(u8, 64 * 1024);
     errdefer allocator.free(decompress_buffer);
-    
+
     var decompress = try std.compress.xz.Decompress.init(&file_reader.interface, allocator, decompress_buffer);
     defer decompress.deinit();
 

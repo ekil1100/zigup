@@ -5,7 +5,6 @@ pub const Paths = @import("core/paths.zig").Paths;
 pub const remote = @import("core/remote.zig");
 pub const installer = @import("core/install.zig");
 pub const list = @import("core/list.zig");
-pub const zls = @import("zls/service.zig");
 
 test "paths initialization" {
     var gpa = std.heap.ArenaAllocator.init(std.heap.page_allocator);

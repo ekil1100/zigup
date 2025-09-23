@@ -3,7 +3,6 @@ const Paths = @import("paths.zig").Paths;
 const remote = @import("remote.zig");
 const installer = @import("install.zig");
 const list_mod = @import("list.zig");
-const zls = @import("../zls/service.zig");
 
 pub const App = struct {
     allocator: std.mem.Allocator,
@@ -33,10 +32,6 @@ pub const App = struct {
         try installer.uninstallVersion(self.allocator, &self.paths, version);
     }
 
-    pub fn setDefaultZig(self: *App, version: []const u8) !void {
-        try installer.setDefault(self.allocator, &self.paths, version);
-    }
-
     pub fn listInstalled(self: *App) ![]list_mod.InstalledVersion {
         return list_mod.loadInstalled(self.allocator, &self.paths);
     }
@@ -45,15 +40,4 @@ pub const App = struct {
         return remote.fetchIndex(self.allocator, &self.http_client, &self.paths);
     }
 
-    pub fn resolveWhich(self: *App, target: list_mod.WhichTarget) !?[]u8 {
-        return list_mod.resolveWhich(self.allocator, &self.paths, target);
-    }
-
-    pub fn installZlsLatest(self: *App) !void {
-        try zls.installLatest(self.allocator, &self.http_client, &self.paths);
-    }
-
-    pub fn uninstallZlsLatest(self: *App) !void {
-        try zls.uninstallLatest(self.allocator, &self.paths);
-    }
 };

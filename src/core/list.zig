@@ -59,32 +59,6 @@ pub fn loadInstalled(
     return owned;
 }
 
-pub const WhichTarget = enum { zig, zls };
-
-pub const ResolveWhichError = std.fs.Dir.StatFileError || std.mem.Allocator.Error;
-
-pub fn resolveWhich(
-    allocator: std.mem.Allocator,
-    paths: *const Paths,
-    target: WhichTarget,
-) ResolveWhichError!?[]u8 {
-    var arena = std.heap.ArenaAllocator.init(allocator);
-    defer arena.deinit();
-    const a = arena.allocator();
-
-    const path = switch (target) {
-        .zig => try paths.shimZigPath(a),
-        .zls => try paths.shimZlsPath(a),
-    };
-
-    const stat = std.fs.cwd().statFile(path) catch return null;
-    if (stat.kind != .sym_link and stat.kind != .file) {
-        return null;
-    }
-
-    return try allocator.dupe(u8, path);
-}
-
 fn dirExists(path: []const u8) bool {
     const stat = std.fs.cwd().statFile(path) catch return false;
     return stat.kind == .directory;
