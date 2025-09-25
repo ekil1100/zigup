@@ -4,75 +4,92 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**zigup** is a Zig version manager CLI tool (similar to rustup) written in Zig. It manages multiple Zig compiler versions and the Zig Language Server (ZLS) installations. The project targets Linux, macOS, and Windows platforms for both x86_64 and aarch64 architectures.
+**This is a LEARNING PROJECT** - a Zig version management tool (similar to rustup) written in Zig. The primary goal is education, not production use.
 
-## Key Development Commands
+### Learning Objectives
+- **Zig Fundamentals**: Basic syntax, memory management, error handling patterns
+- **Standard Library**: HTTP clients, JSON parsing, file system operations, process management
+- **Build System**: Understanding build.zig, build.zig.zon, and dependency management
+- **System Programming**: Cross-platform considerations, symlink management, package installation patterns
 
-### Build & Run
-- `zig build` - Compile the project and install to `zig-out/`
-- `zig build run -- <args>` - Build and run with CLI arguments
-- `zig build test` - Run all tests (module and executable tests)
-- `zig fmt src` - Format all source files
+### Teaching Methodology
+When working with this codebase:
+1. **Explain concepts first** - Before implementing, explain the "why" behind design decisions
+2. **Interactive learning** - Request user input on 2-10 line code pieces for key algorithms or design decisions
+3. **Progressive complexity** - Build features incrementally, reinforcing previous concepts
+4. **Real-world context** - Connect each implementation to broader systems programming principles
 
-### Installation Script
-- `./install_zig.sh` - Installs latest master Zig toolchain and ZLS (requires curl, tar, internet)
+The MVP focuses on Linux x86_64 support with core functionality: install, uninstall, and list Zig versions.
 
-### CLI Commands (after building)
-- `./zig-out/bin/zigup install [version]` - Install Zig version (default: latest)
-- `./zig-out/bin/zigup uninstall <version>` - Remove installed version
-- `./zig-out/bin/zigup list [--installed|--remote]` - List versions
-- `./zig-out/bin/zigup default <version>` - Set default version
-- `./zig-out/bin/zigup which [zig|zls]` - Show binary path
-- `./zig-out/bin/zigup zls install/update/uninstall` - Manage ZLS
+## Build Commands
 
-## Architecture & Module Organization
+- `zig build` - Build the zigup executable
+- `zig build run` - Build and run the application
+- `zig build run -- <args>` - Run with command line arguments (e.g., `zig build run -- install latest`)
+- `zig build test` - Run tests for the zigup.zig module
 
-### Entry Points
-- `src/main.zig` - Executable entry point with GPA allocator setup
-- `src/root.zig` - Library module root (for use as Zig package)
-- `src/cli/runner.zig` - CLI command routing and argument parsing
+## Architecture
 
-### Core Modules (`src/core/`)
-- `app.zig` - Main application state, HTTP client, and operation orchestration
-- `paths.zig` - Directory structure management (`~/.zigup/dist/`, `bin/`, `cache/`)
-- `remote.zig` - Fetches/parses Zig release index from ziglang.org/download/index.json
-- `install.zig` - Version installation, symlink management, default version handling
-- `list.zig` - Installed/remote version listing, which command resolution
+### Core Structure
+- `src/main.zig` - Entry point with memory allocator setup, delegates to zigup module
+- `src/zigup.zig` - Main application logic containing all CLI commands and core functionality
 
-### Support Modules
-- `src/fs/archive.zig` - tar.xz extraction and file operations
-- `src/net/download.zig` - HTTP downloads with progress, checksum verification
-- `src/zls/service.zig` - ZLS installation and management
+### Key Components in zigup.zig:
 
-### Storage Layout
+**Command Handling**: CLI argument parsing with command dispatch for `install`, `uninstall`, `list`
+
+**Release Management**:
+- Fetches from https://ziglang.org/download/index.json with 6-hour caching
+- Parses JSON to extract Linux x86_64 releases with URL/shasum validation
+- Version resolution: supports "latest", "stable", "master"/"dev", and specific versions
+
+**Installation Pipeline**:
+- Downloads tar.xz archives to `~/.zigup/cache/downloads/`
+- Verifies SHA256 checksums using Zig's crypto.hash.sha2.Sha256
+- Extracts to `~/.zigup/dist/<version>/` using external tar command
+- Creates symlinks in `~/.zigup/bin/zig` for default version management
+
+**Directory Structure**:
 ```
 ~/.zigup/
-├── dist/<version>/<platform-arch>/  # Installed Zig versions
-├── bin/                              # Symlinks to active version
-├── cache/                            # Download cache
-├── zls/<version>/                   # ZLS installations
-└── current                          # Default version pointer
+├── dist/<version>/linux-x86_64/zig    # Extracted Zig binaries
+├── bin/zig                           # Symlink to default version
+├── cache/downloads/                  # Downloaded archives
+├── cache/index.json                  # Cached version index
+└── current                          # File containing default version
 ```
 
-## Current Status & Known Issues
+### External Dependencies
+- Uses `curl` for HTTP downloads (via std.process.Child.run)
+- Uses `tar` for archive extraction
+- No Zig package dependencies (empty .dependencies in build.zig.zon)
 
-The project is being updated for Zig 0.16 compatibility. Key areas needing attention:
-- JSON dynamic value API changes in `remote.zig`
-- ArrayList initialization patterns need updating
-- Filesystem error sets require adjustment
-- HTTP writer interface changes in download logic
+### Error Handling Patterns
+- Custom error types (InvalidCommand, InvalidArguments, etc.)
+- File operation error handling with appropriate fallbacks
+- Network operation validation and retry logic
 
-## Testing Strategy
+## Learning Focus Areas
 
-- Tests are inline with implementation using `test` blocks
-- Use `std.testing` utilities and scope-limited allocators
-- Run `zig build test` before commits
-- Test both module (`root.zig`) and executable (`main.zig`) suites
+### Zig Concepts Demonstrated
+- **Memory Management**: GeneralPurposeAllocator patterns, defer cleanup, owned vs borrowed memory
+- **Error Handling**: Custom error types, error unions, try/catch patterns
+- **Standard Library**: JSON parsing, file I/O, process spawning, cryptographic hashing
+- **String Handling**: Zig's approach to UTF-8, slices, and string comparison
+- **Build System**: Module system, conditional compilation, external tool integration
 
-## Development Workflow
+### Teaching Opportunities
+1. **HTTP Client Evolution**: Start with external curl, migrate to std.http for learning
+2. **JSON Processing**: Demonstrate parsing strategies, memory ownership in JSON trees
+3. **File System Patterns**: Path manipulation, directory traversal, atomic operations
+4. **Version Management Logic**: String parsing, semantic versioning, dependency resolution
+5. **CLI Design**: Argument parsing, user experience, error messaging
 
-1. Make changes following existing patterns and conventions
-2. Run `zig fmt src` for consistent formatting
-3. Execute `zig build test` to verify tests pass
-4. Test CLI functionality with `zig build run -- <command>`
-5. Commit with short, imperative messages (e.g., "fix JSON parsing", "add retry logic")
+### Interactive Learning Guidelines
+- Use TodoWrite to track learning objectives and progress
+- Request user implementation of core algorithms (version comparison, path resolution)
+- Explain trade-offs between external tools vs pure Zig implementations
+- Connect each feature to broader software engineering principles
+- Provide "Learn by Doing" opportunities for key business logic
+
+Current implementation uses external tools (curl, tar) as stepping stones - perfect opportunities to demonstrate Zig alternatives and discuss architectural evolution.
