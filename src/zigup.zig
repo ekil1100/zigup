@@ -17,7 +17,6 @@ pub fn run(allocator: std.mem.Allocator) !void {
     const stderr = std.fs.File.stderr();
 
     const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
 
     if (args.len <= 1) {
         try printUsage(stdout);
@@ -53,14 +52,6 @@ fn handleInstall(allocator: std.mem.Allocator, args: [][:0]u8, stdout: std.fs.Fi
     }
 
     const releases = try fetchReleases(allocator);
-    defer {
-        for (releases) |rel| {
-            allocator.free(rel.version);
-            allocator.free(rel.url);
-            if (rel.shasum) |s| allocator.free(s);
-        }
-        allocator.free(releases);
-    }
 
     const release = findRelease(releases, version) orelse {
         try printToFile(allocator, stderr, "unknown version: {s}\n", .{version});
@@ -93,11 +84,9 @@ fn handleList(allocator: std.mem.Allocator, args: [][:0]u8, stdout: std.fs.File,
     var show_remote = false;
 
     for (args) |arg| {
-        if (std.mem.eql(u8, arg, "--remote")) {
+        if (std.mem.eql(u8, arg, "--remote") or std.mem.eql(u8, arg, "-r")) {
             show_remote = true;
             show_installed = false;
-        } else if (std.mem.eql(u8, arg, "--installed")) {
-            show_installed = true;
         } else {
             try printToFile(allocator, stderr, "unknown flag: {s}\n", .{arg});
             return error.InvalidArguments;
@@ -106,11 +95,6 @@ fn handleList(allocator: std.mem.Allocator, args: [][:0]u8, stdout: std.fs.File,
 
     if (show_installed) {
         const installed = try listInstalled(allocator);
-        defer {
-            for (installed.versions) |version| allocator.free(version);
-            allocator.free(installed.versions);
-            if (installed.default) |d| allocator.free(d);
-        }
 
         try stdout.writeAll("Installed versions:\n");
         if (installed.versions.len == 0) {
@@ -126,14 +110,6 @@ fn handleList(allocator: std.mem.Allocator, args: [][:0]u8, stdout: std.fs.File,
 
     if (show_remote) {
         const releases = try fetchReleases(allocator);
-        defer {
-            for (releases) |rel| {
-                allocator.free(rel.version);
-                allocator.free(rel.url);
-                if (rel.shasum) |s| allocator.free(s);
-            }
-            allocator.free(releases);
-        }
 
         try stdout.writeAll("Available releases:\n");
         for (releases) |release| {
@@ -155,12 +131,9 @@ const InstallResult = enum { installed, already_installed };
 
 fn installZig(allocator: std.mem.Allocator, release: Release, set_default: bool) !InstallResult {
     const home = try getHomeDir(allocator);
-    defer allocator.free(home);
     const zigup_dir = try std.fs.path.join(allocator, &.{ home, ".zigup" });
-    defer allocator.free(zigup_dir);
 
     const zig_binary_path = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", release.version, PLATFORM, "zig" });
-    defer allocator.free(zig_binary_path);
 
     if (fileExists(zig_binary_path)) {
         if (set_default) try setDefaultZig(allocator, release.version);
@@ -168,9 +141,7 @@ fn installZig(allocator: std.mem.Allocator, release: Release, set_default: bool)
     }
 
     const archive_filename = try std.fmt.allocPrint(allocator, "zig-{s}-{s}.tar.xz", .{ PLATFORM, release.version });
-    defer allocator.free(archive_filename);
     const archive_path = try std.fs.path.join(allocator, &.{ zigup_dir, "cache", "downloads", archive_filename });
-    defer allocator.free(archive_path);
 
     try ensureDir(zigup_dir);
     try ensureDir(try std.fs.path.join(allocator, &.{ zigup_dir, "cache", "downloads" }));
@@ -183,7 +154,6 @@ fn installZig(allocator: std.mem.Allocator, release: Release, set_default: bool)
     }
 
     const dist_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", release.version });
-    defer allocator.free(dist_dir);
     try extractTarXz(allocator, archive_path, dist_dir);
 
     if (set_default) {
@@ -195,12 +165,9 @@ fn installZig(allocator: std.mem.Allocator, release: Release, set_default: bool)
 
 fn uninstallZig(allocator: std.mem.Allocator, version: []const u8) !void {
     const home = try getHomeDir(allocator);
-    defer allocator.free(home);
     const zigup_dir = try std.fs.path.join(allocator, &.{ home, ".zigup" });
-    defer allocator.free(zigup_dir);
 
     const version_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", version });
-    defer allocator.free(version_dir);
 
     std.fs.cwd().deleteTree(version_dir) catch |err| switch (err) {
         error.FileSystem => {},
@@ -208,16 +175,13 @@ fn uninstallZig(allocator: std.mem.Allocator, version: []const u8) !void {
     };
 
     const current_file = try std.fs.path.join(allocator, &.{ zigup_dir, "current" });
-    defer allocator.free(current_file);
 
     const current = readFile(allocator, current_file) catch null;
-    defer if (current) |c| allocator.free(c);
 
     if (current) |c| {
         const trimmed = std.mem.trim(u8, c, " \n\r\t");
         if (std.mem.eql(u8, trimmed, version)) {
             const shim_path = try std.fs.path.join(allocator, &.{ zigup_dir, "bin", "zig" });
-            defer allocator.free(shim_path);
             std.fs.cwd().deleteFile(shim_path) catch {};
             std.fs.cwd().deleteFile(current_file) catch {};
         }
@@ -231,20 +195,15 @@ const InstalledVersions = struct {
 
 fn listInstalled(allocator: std.mem.Allocator) !InstalledVersions {
     const home = try getHomeDir(allocator);
-    defer allocator.free(home);
     const zigup_dir = try std.fs.path.join(allocator, &.{ home, ".zigup" });
-    defer allocator.free(zigup_dir);
     const dist_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "dist" });
-    defer allocator.free(dist_dir);
 
     var versions = std.array_list.AlignedManaged([]const u8, null).init(allocator);
-    defer versions.deinit();
 
     var dir = std.fs.cwd().openDir(dist_dir, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return InstalledVersions{ .versions = try allocator.alloc([]const u8, 0), .default = null },
         else => return err,
     };
-    defer dir.close();
 
     var it = dir.iterate();
     while (try it.next()) |entry| {
@@ -257,7 +216,6 @@ fn listInstalled(allocator: std.mem.Allocator) !InstalledVersions {
     std.mem.sort([]const u8, versions.items, {}, stringLessThan);
 
     const current_file = try std.fs.path.join(allocator, &.{ zigup_dir, "current" });
-    defer allocator.free(current_file);
     const default_raw = readFile(allocator, current_file) catch null;
     const default = if (default_raw) |d| blk: {
         const trimmed = std.mem.trim(u8, d, " \n\r\t");
@@ -274,9 +232,7 @@ fn listInstalled(allocator: std.mem.Allocator) !InstalledVersions {
 
 fn fetchReleases(allocator: std.mem.Allocator) ![]Release {
     const home = try getHomeDir(allocator);
-    defer allocator.free(home);
     const cache_path = try std.fs.path.join(allocator, &.{ home, ".zigup", "cache", "index.json" });
-    defer allocator.free(cache_path);
 
     try ensureDir(try std.fs.path.join(allocator, &.{ home, ".zigup", "cache" }));
 
@@ -296,13 +252,10 @@ fn fetchReleases(allocator: std.mem.Allocator) ![]Release {
     }
 
     const data = try readFile(allocator, cache_path);
-    defer allocator.free(data);
 
-    var parsed = try std.json.parseFromSlice(std.json.Value, allocator, data, .{});
-    defer parsed.deinit();
+    const parsed = try std.json.parseFromSlice(std.json.Value, allocator, data, .{});
 
     var releases = std.array_list.AlignedManaged(Release, null).init(allocator);
-    defer releases.deinit();
 
     const obj = parsed.value.object;
     var it = obj.iterator();
@@ -361,29 +314,23 @@ fn findRelease(releases: []const Release, version: []const u8) ?Release {
 
 fn setDefaultZig(allocator: std.mem.Allocator, version: []const u8) !void {
     const home = try getHomeDir(allocator);
-    defer allocator.free(home);
     const zigup_dir = try std.fs.path.join(allocator, &.{ home, ".zigup" });
-    defer allocator.free(zigup_dir);
 
     const zig_binary = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", version, PLATFORM, "zig" });
-    defer allocator.free(zig_binary);
 
     if (!fileExists(zig_binary)) {
         return error.FileNotFound;
     }
 
     const bin_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "bin" });
-    defer allocator.free(bin_dir);
     try ensureDir(bin_dir);
 
     const shim_path = try std.fs.path.join(allocator, &.{ bin_dir, "zig" });
-    defer allocator.free(shim_path);
 
     std.fs.cwd().deleteFile(shim_path) catch {};
     try std.posix.symlink(zig_binary, shim_path);
 
     const current_file = try std.fs.path.join(allocator, &.{ zigup_dir, "current" });
-    defer allocator.free(current_file);
     const file = try std.fs.cwd().createFile(current_file, .{});
     defer file.close();
     try file.writeAll(version);
@@ -394,8 +341,6 @@ fn downloadFile(allocator: std.mem.Allocator, url: []const u8, dest_path: []cons
         .allocator = allocator,
         .argv = &.{ "curl", "-L", "-o", dest_path, url },
     });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
 
     if (result.term != .Exited or result.term.Exited != 0) {
         return error.DownloadFailed;
@@ -407,8 +352,6 @@ fn extractTarXz(allocator: std.mem.Allocator, archive_path: []const u8, dest_dir
         .allocator = allocator,
         .argv = &.{ "tar", "-xJf", archive_path, "-C", dest_dir, "--strip-components=1" },
     });
-    defer allocator.free(result.stdout);
-    defer allocator.free(result.stderr);
 
     if (result.term != .Exited or result.term.Exited != 0) {
         return error.ExtractFailed;
@@ -472,6 +415,5 @@ fn releaseCompare(_: void, a: Release, b: Release) bool {
 
 fn printToFile(allocator: std.mem.Allocator, file: std.fs.File, comptime fmt: []const u8, args: anytype) !void {
     const text = try std.fmt.allocPrint(allocator, fmt, args);
-    defer allocator.free(text);
     try file.writeAll(text);
 }
