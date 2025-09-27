@@ -233,24 +233,9 @@ fn listInstalled(allocator: std.mem.Allocator) !InstalledVersions {
 fn fetchReleases(allocator: std.mem.Allocator) ![]Release {
     const home = try getHomeDir(allocator);
     const cache_path = try std.fs.path.join(allocator, &.{ home, ".zigup", "cache", "index.json" });
-
     try ensureDir(try std.fs.path.join(allocator, &.{ home, ".zigup", "cache" }));
 
-    var use_cached = false;
-    if (std.fs.cwd().statFile(cache_path)) |stat| {
-        const now = std.time.nanoTimestamp();
-        if (now != 0) {
-            const age = now - stat.mtime;
-            if (age >= 0 and age <= CACHE_TTL_NS) {
-                use_cached = true;
-            }
-        }
-    } else |_| {}
-
-    if (!use_cached) {
-        try downloadFile(allocator, INDEX_URL, cache_path);
-    }
-
+    try downloadFile(allocator, INDEX_URL, cache_path);
     const data = try readFile(allocator, cache_path);
 
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, data, .{});
@@ -261,8 +246,8 @@ fn fetchReleases(allocator: std.mem.Allocator) ![]Release {
     var it = obj.iterator();
     while (it.next()) |entry| {
         const tag = entry.key_ptr.*;
-        if (std.mem.eql(u8, tag, "master") or std.mem.eql(u8, tag, "latest")) continue;
-
+        std.debug.print("Found tag: {s}\n", .{tag});
+        if (std.mem.eql(u8, tag, "master")) continue;
         if (entry.value_ptr.* == .object) {
             const release_obj = entry.value_ptr.*.object;
             if (release_obj.get(PLATFORM)) |platform_info| {
@@ -286,6 +271,7 @@ fn fetchReleases(allocator: std.mem.Allocator) ![]Release {
     }
 
     std.mem.sort(Release, releases.items, {}, releaseCompare);
+    std.debug.print("{any}\n", .{releases.items});
     return try releases.toOwnedSlice();
 }
 
