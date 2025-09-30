@@ -1,130 +1,40 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
 ## Project Overview
 
-**This is a LEARNING PROJECT** - a Zig version management tool (similar to rustup) written in Zig. The primary goal is education, not production use.
+**This is a LEARNING PROJECT** - a Zig version management tool (similar to rustup). Primary goal is education, not production use.
 
-### Learning Objectives
+**Learning Focus**: Zig fundamentals, standard library (JSON, file I/O, process spawning, crypto), build system, system programming patterns.
 
-- **Zig Fundamentals**: Basic syntax, memory management, error handling patterns
-- **Standard Library**: HTTP clients, JSON parsing, file system operations, process management
-- **Build System**: Understanding build.zig, build.zig.zon, and dependency management
-- **System Programming**: Cross-platform considerations, symlink management, package installation patterns
+**Teaching Methodology**: Explain concepts before implementing, provide educational insights, connect to broader principles.
 
-### Teaching Methodology
-
-When working with this codebase:
-
-1. **Explain concepts first** - Before implementing, explain the "why" behind design decisions
-2. **Interactive learning** - Request user input on 2-10 line code pieces for key algorithms or design decisions
-3. **Progressive complexity** - Build features incrementally, reinforcing previous concepts
-4. **Real-world context** - Connect each implementation to broader systems programming principles
-
-The MVP focuses on Linux x86_64 support with core functionality: install, uninstall, and list Zig versions.
+MVP targets Linux x86_64 with core commands: install, uninstall, list.
 
 ## Build Commands
 
-- `zig build` - Build the zigup executable
-- `zig build run` - Build and run the application
-- `zig build run -- <args>` - Run with command line arguments (e.g., `zig build run -- install latest`)
-- `zig build test` - Run tests for the zigup.zig module
+- `zig build` - Build zigup
+- `zig build run -- <args>` - Run with arguments (e.g., `zig build run -- install latest`)
 
 ## Architecture
 
-### Core Structure
+**Files**: `src/main.zig` (entry point), `src/zigup.zig` (core logic)
 
-- `src/main.zig` - Entry point with memory allocator setup, delegates to zigup module
-- `src/zigup.zig` - Main application logic containing all CLI commands and core functionality
+**Data Structures**:
+- `StringHashMap(VersionEntry)` - Version index with O(1) lookup
+- `VersionEntry` - Version metadata + `platforms: StringHashMap(PlatformEntry)`
+- `PlatformEntry` - Platform tarball/shasum/size
 
-### Key Components in zigup.zig:
+**Commands**: `install [version] [--default]`, `uninstall <version>`, `list [-r]`
 
-**Command Handling**: CLI argument parsing with command dispatch for `install`, `uninstall`, `list`
+**Flow**: Fetch index.json → Download tar.xz → Verify SHA256 → Extract → Symlink `~/.zigup/bin/zig`
 
-**Release Management**:
+**Directory**: `~/.zigup/{dist/<version>/, bin/, cache/downloads/, cache/index.json, current}`
 
-- Fetches from https://ziglang.org/download/index.json with 6-hour caching
-- Parses JSON to extract Linux x86_64 releases with URL/shasum validation
-- Version resolution: supports "latest", "stable", "master"/"dev", and specific versions
+**External tools**: `curl` (downloads), `tar` (extraction)
 
-**Installation Pipeline**:
+## Key Implementation Notes
 
-- Downloads tar.xz archives to `~/.zigup/cache/downloads/`
-- Verifies SHA256 checksums using Zig's crypto.hash.sha2.Sha256
-- Extracts to `~/.zigup/dist/<version>/` using external tar command
-- Creates symlinks in `~/.zigup/bin/zig` for default version management
-
-**Directory Structure**:
-
-```
-~/.zigup/
-├── dist/<version>/linux-x86_64/zig    # Extracted Zig binaries
-├── bin/zig                           # Symlink to default version
-├── cache/downloads/                  # Downloaded archives
-├── cache/index.json                  # Cached version index
-└── current                          # File containing default version
-```
-
-### External Dependencies
-
-- Uses `curl` for HTTP downloads (via std.process.Child.run)
-- Uses `tar` for archive extraction
-- No Zig package dependencies (empty .dependencies in build.zig.zon)
-
-### Error Handling Patterns
-
-- Custom error types (InvalidCommand, InvalidArguments, etc.)
-- File operation error handling with appropriate fallbacks
-- Network operation validation and retry logic
-
-## Learning Focus Areas
-
-### Zig Concepts Demonstrated
-
-- **Memory Management**: GeneralPurposeAllocator patterns, defer cleanup, owned vs borrowed memory
-- **Error Handling**: Custom error types, error unions, try/catch patterns
-- **Standard Library**: JSON parsing, file I/O, process spawning, cryptographic hashing
-- **String Handling**: Zig's approach to UTF-8, slices, and string comparison
-- **Build System**: Module system, conditional compilation, external tool integration
-
-### Teaching Opportunities
-
-1. **HTTP Client Evolution**: Start with external curl, migrate to std.http for learning
-2. **JSON Processing**: Demonstrate parsing strategies, memory ownership in JSON trees
-3. **File System Patterns**: Path manipulation, directory traversal, atomic operations
-4. **Version Management Logic**: String parsing, semantic versioning, dependency resolution
-5. **CLI Design**: Argument parsing, user experience, error messaging
-
-### Interactive Learning Guidelines
-
-- Use TodoWrite to track learning objectives and progress
-- Request user implementation of core algorithms (version comparison, path resolution)
-- Explain trade-offs between external tools vs pure Zig implementations
-- Connect each feature to broader software engineering principles
-- Provide "Learn by Doing" opportunities for key business logic
-
-Current implementation uses external tools (curl, tar) as stepping stones - perfect opportunities to demonstrate Zig alternatives and discuss architectural evolution.
-
-## Development & Debugging Tips
-
-### Finding Zig APIs
-
-When encountering unknown or changed APIs (especially in dev versions), **always check the Zig standard library source code first**:
-
-**Build System APIs**:
-- `/home/like/.local/zig/lib/std/Build.zig` - Main build system API reference
-- `/home/like/.local/zig/lib/std/Build/Step/Compile.zig` - Compilation step options like `.use_llvm`
-- `/home/like/.local/zig/lib/std/Build/Module.zig` - Module-related APIs
-
-**Standard Library APIs**:
-- `/home/like/.local/zig/lib/std/http.zig` - HTTP client implementation
-- `/home/like/.local/zig/lib/std/json.zig` - JSON parsing and serialization
-- `/home/like/.local/zig/lib/std/fs.zig` - File system operations
-- `/home/like/.local/zig/lib/std/process.zig` - Process spawning and management
-- `/home/like/.local/zig/lib/std/crypto/` - Cryptographic functions
-
-**Why this matters**: Zig's development versions change APIs frequently. The source code is always the most accurate and up-to-date documentation, more reliable than online docs or examples that may be outdated.
-
-**Example**: The old `.use_llvm = true` parameter moved from module creation to the `addExecutable()` options struct in Zig 0.16+. This was discoverable by examining the Compile.zig source.
-- 我用的 arena allocator ，程序结束会统一清理内存，不需要即时清理
+- **Memory**: Arena allocator - no manual deinit needed
+- **API lookup**: Check `/home/like/.local/zig/lib/std/` source for latest dev APIs
+- **Version sorting**: `versionCompare()` does semantic versioning, puts master last
+- **JSON parsing**: Dynamic with `std.json.Value`, HashMap stores platform info
