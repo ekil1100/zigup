@@ -127,3 +127,4 @@ When encountering unknown or changed APIs (especially in dev versions), **always
 **Why this matters**: Zig's development versions change APIs frequently. The source code is always the most accurate and up-to-date documentation, more reliable than online docs or examples that may be outdated.
 
 **Example**: The old `.use_llvm = true` parameter moved from module creation to the `addExecutable()` options struct in Zig 0.16+. This was discoverable by examining the Compile.zig source.
+- 我用的 arena allocator ，程序结束会统一清理内存，不需要即时清理

@@ -5,13 +5,6 @@ const PLATFORM = "linux-x86_64";
 const CACHE_TTL_NS: i128 = @as(i128, std.time.ns_per_hour) * 6;
 const MAX_INDEX_SIZE: usize = 16 * 1024 * 1024;
 
-const Release = struct {
-    version: []const u8,
-    url: []const u8,
-    shasum: ?[]const u8,
-    size: ?u64,
-};
-
 pub fn run(allocator: std.mem.Allocator) !void {
     const stdout = std.fs.File.stdout();
     const stderr = std.fs.File.stderr();
@@ -58,14 +51,14 @@ fn handleInstall(allocator: std.mem.Allocator, args: [][:0]u8, stdout: std.fs.Fi
         return error.InvalidArguments;
     };
 
-    const result = try installZig(allocator, release, set_default);
+    const result = try installZig(allocator, release, version, set_default);
     switch (result) {
-        .installed => try printToFile(allocator, stdout, "installed zig {s}\n", .{release.version}),
-        .already_installed => try printToFile(allocator, stdout, "zig {s} already installed\n", .{release.version}),
+        .installed => try printToFile(allocator, stdout, "installed zig {s}\n", .{version}),
+        .already_installed => try printToFile(allocator, stdout, "zig {s} already installed\n", .{version}),
     }
 
     if (set_default) {
-        try printToFile(allocator, stdout, "set default zig to {s}\n", .{release.version});
+        try printToFile(allocator, stdout, "set default zig to {s}\n", .{version});
     }
 }
 
@@ -111,9 +104,19 @@ fn handleList(allocator: std.mem.Allocator, args: [][:0]u8, stdout: std.fs.File,
     if (show_remote) {
         const releases = try fetchReleases(allocator);
 
+        // 收集所有版本名并排序
+        var version_names = std.array_list.AlignedManaged([]const u8, null).init(allocator);
+
+        var it = releases.keyIterator();
+        while (it.next()) |key| {
+            try version_names.append(key.*);
+        }
+
+        std.mem.sort([]const u8, version_names.items, {}, versionCompare);
+
         try stdout.writeAll("Available releases:\n");
-        for (releases) |release| {
-            try printToFile(allocator, stdout, "  {s} - {s}\n", .{ release.version, release.url });
+        for (version_names.items) |version_name| {
+            try printToFile(allocator, stdout, "  {s}\n", .{version_name});
         }
     }
 }
@@ -129,35 +132,38 @@ fn printUsage(file: std.fs.File) !void {
 
 const InstallResult = enum { installed, already_installed };
 
-fn installZig(allocator: std.mem.Allocator, release: Release, set_default: bool) !InstallResult {
+fn installZig(allocator: std.mem.Allocator, version_entry: VersionEntry, version_name: []const u8, set_default: bool) !InstallResult {
     const home = try getHomeDir(allocator);
     const zigup_dir = try std.fs.path.join(allocator, &.{ home, ".zigup" });
 
-    const zig_binary_path = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", release.version, PLATFORM, "zig" });
+    // 获取当前平台的信息
+    const platform = version_entry.platforms.get(PLATFORM) orelse {
+        return error.PlatformNotSupported;
+    };
+
+    const zig_binary_path = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", version_name, PLATFORM, "zig" });
 
     if (fileExists(zig_binary_path)) {
-        if (set_default) try setDefaultZig(allocator, release.version);
+        if (set_default) try setDefaultZig(allocator, version_name);
         return .already_installed;
     }
 
-    const archive_filename = try std.fmt.allocPrint(allocator, "zig-{s}-{s}.tar.xz", .{ PLATFORM, release.version });
+    const archive_filename = try std.fmt.allocPrint(allocator, "zig-{s}-{s}.tar.xz", .{ PLATFORM, version_name });
     const archive_path = try std.fs.path.join(allocator, &.{ zigup_dir, "cache", "downloads", archive_filename });
 
     try ensureDir(zigup_dir);
     try ensureDir(try std.fs.path.join(allocator, &.{ zigup_dir, "cache", "downloads" }));
 
     if (!fileExists(archive_path)) {
-        try downloadFile(allocator, release.url, archive_path);
-        if (release.shasum) |expected_hash| {
-            try verifyChecksum(allocator, archive_path, expected_hash);
-        }
+        try downloadFile(allocator, platform.tarball, archive_path);
+        try verifyChecksum(allocator, archive_path, platform.shasum);
     }
 
-    const dist_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", release.version });
+    const dist_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", version_name });
     try extractTarXz(allocator, archive_path, dist_dir);
 
     if (set_default) {
-        try setDefaultZig(allocator, release.version);
+        try setDefaultZig(allocator, version_name);
     }
 
     return .installed;
@@ -230,72 +236,95 @@ fn listInstalled(allocator: std.mem.Allocator) !InstalledVersions {
     };
 }
 
-fn fetchReleases(allocator: std.mem.Allocator) ![]Release {
+const PlatformEntry = struct {
+    tarball: []const u8,
+    shasum: []const u8,
+    size: []const u8,
+};
+
+const VersionEntry = struct {
+    version: []const u8,
+    date: []const u8,
+    platforms: std.StringHashMap(PlatformEntry),
+};
+
+fn fetchReleases(allocator: std.mem.Allocator) !std.StringHashMap(VersionEntry) {
     const home = try getHomeDir(allocator);
     const cache_path = try std.fs.path.join(allocator, &.{ home, ".zigup", "cache", "index.json" });
     try ensureDir(try std.fs.path.join(allocator, &.{ home, ".zigup", "cache" }));
-
     try downloadFile(allocator, INDEX_URL, cache_path);
     const data = try readFile(allocator, cache_path);
-
+    var versions = std.StringHashMap(VersionEntry).init(allocator);
     const parsed = try std.json.parseFromSlice(std.json.Value, allocator, data, .{});
-
-    var releases = std.array_list.AlignedManaged(Release, null).init(allocator);
-
     const obj = parsed.value.object;
     var it = obj.iterator();
     while (it.next()) |entry| {
-        const tag = entry.key_ptr.*;
-        std.debug.print("Found tag: {s}\n", .{tag});
-        if (std.mem.eql(u8, tag, "master")) continue;
+        const key = entry.key_ptr.*;
         if (entry.value_ptr.* == .object) {
-            const release_obj = entry.value_ptr.*.object;
-            if (release_obj.get(PLATFORM)) |platform_info| {
-                if (platform_info == .object) {
-                    const info = platform_info.object;
-                    const url = info.get("tarball").?.string;
-                    const shasum = if (info.get("shasum")) |s| s.string else null;
-                    const size = if (info.get("size")) |s| @as(u64, @intCast(s.integer)) else null;
-
-                    const version = if (std.mem.startsWith(u8, tag, "zig-")) tag[4..] else tag;
-
-                    try releases.append(.{
-                        .version = try allocator.dupe(u8, version),
-                        .url = try allocator.dupe(u8, url),
-                        .shasum = if (shasum) |s| try allocator.dupe(u8, s) else null,
-                        .size = size,
-                    });
+            const version_obj = entry.value_ptr.*.object;
+            var platforms = std.StringHashMap(PlatformEntry).init(allocator);
+            var plat_it = version_obj.iterator();
+            while (plat_it.next()) |plat_entry| {
+                const plat_key = plat_entry.key_ptr.*;
+                const plat_info = plat_entry.value_ptr.*;
+                if (plat_info != .object) {
+                    continue;
+                }
+                if (plat_info == .object) {
+                    const plat_obj = plat_info.object;
+                    const platform = PlatformEntry{
+                        .tarball = plat_obj.get("tarball").?.string,
+                        .shasum = plat_obj.get("shasum").?.string,
+                        .size = plat_obj.get("size").?.string,
+                    };
+                    try platforms.put(plat_key, platform);
                 }
             }
+            const version = VersionEntry{
+                .version = if (version_obj.get("version")) |v| v.string else key,
+                .date = version_obj.get("date").?.string,
+                .platforms = platforms,
+            };
+            try versions.put(key, version);
         }
     }
-
-    std.mem.sort(Release, releases.items, {}, releaseCompare);
-    std.debug.print("{any}\n", .{releases.items});
-    return try releases.toOwnedSlice();
+    return versions;
 }
 
-fn findRelease(releases: []const Release, version: []const u8) ?Release {
-    if (std.mem.eql(u8, version, "latest") or std.mem.eql(u8, version, "stable")) {
-        for (releases) |rel| {
-            if (!std.mem.containsAtLeast(u8, rel.version, 1, "dev")) {
-                return rel;
+fn findRelease(releases: std.StringHashMap(VersionEntry), version: []const u8) ?VersionEntry {
+    // 直接查找特定版本
+    if (!std.mem.eql(u8, version, "latest") and
+        !std.mem.eql(u8, version, "stable") and
+        !std.mem.eql(u8, version, "master") and
+        !std.mem.eql(u8, version, "dev"))
+    {
+        return releases.get(version);
+    }
+
+    // 处理别名：latest/stable 或 master/dev
+    var it = releases.iterator();
+    var best: ?VersionEntry = null;
+
+    while (it.next()) |entry| {
+        const ver = entry.value_ptr.*;
+        const ver_name = entry.key_ptr.*;
+
+        if (std.mem.eql(u8, version, "latest") or std.mem.eql(u8, version, "stable")) {
+            // 寻找最新的非 dev 版本
+            if (!std.mem.containsAtLeast(u8, ver_name, 1, "dev")) {
+                if (best == null or std.mem.lessThan(u8, best.?.version, ver_name)) {
+                    best = ver;
+                }
             }
-        }
-    } else if (std.mem.eql(u8, version, "master") or std.mem.eql(u8, version, "dev")) {
-        for (releases) |rel| {
-            if (std.mem.containsAtLeast(u8, rel.version, 1, "dev")) {
-                return rel;
-            }
-        }
-    } else {
-        for (releases) |rel| {
-            if (std.mem.eql(u8, rel.version, version)) {
-                return rel;
+        } else if (std.mem.eql(u8, version, "master") or std.mem.eql(u8, version, "dev")) {
+            // 寻找 dev 版本
+            if (std.mem.containsAtLeast(u8, ver_name, 1, "dev")) {
+                return ver;
             }
         }
     }
-    return null;
+
+    return best;
 }
 
 fn setDefaultZig(allocator: std.mem.Allocator, version: []const u8) !void {
@@ -395,8 +424,42 @@ fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
     return std.mem.lessThan(u8, a, b);
 }
 
-fn releaseCompare(_: void, a: Release, b: Release) bool {
-    return std.mem.lessThan(u8, b.version, a.version);
+fn versionCompare(_: void, a: []const u8, b: []const u8) bool {
+    // master 始终排在最后
+    const a_is_master = std.mem.eql(u8, a, "master");
+    const b_is_master = std.mem.eql(u8, b, "master");
+
+    if (a_is_master and b_is_master) return false;
+    if (a_is_master) return false; // a 是 master，排在 b 后面
+    if (b_is_master) return true;  // b 是 master，a 排在 b 前面
+
+    // 按版本号比较：分割并逐段比较
+    var a_it = std.mem.splitScalar(u8, a, '.');
+    var b_it = std.mem.splitScalar(u8, b, '.');
+
+    while (true) {
+        const a_part = a_it.next();
+        const b_part = b_it.next();
+
+        // 如果其中一个结束了
+        if (a_part == null and b_part == null) return false; // 相等
+        if (a_part == null) return true;  // a 更短，排前面
+        if (b_part == null) return false; // b 更短，a 排后面
+
+        // 尝试解析为数字比较
+        const a_num = std.fmt.parseInt(u32, a_part.?, 10) catch {
+            // 如果不是数字，按字典序比较（处理 dev 等后缀）
+            if (std.mem.eql(u8, a_part.?, b_part.?)) continue;
+            return std.mem.lessThan(u8, a_part.?, b_part.?);
+        };
+        const b_num = std.fmt.parseInt(u32, b_part.?, 10) catch {
+            return std.mem.lessThan(u8, a_part.?, b_part.?);
+        };
+
+        if (a_num < b_num) return true;
+        if (a_num > b_num) return false;
+        // 相等则继续下一段
+    }
 }
 
 fn printToFile(allocator: std.mem.Allocator, file: std.fs.File, comptime fmt: []const u8, args: anytype) !void {
