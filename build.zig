@@ -11,6 +11,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         }),
+        .use_llvm = true,
     });
 
     b.installArtifact(exe);
@@ -30,6 +31,7 @@ pub fn build(b: *std.Build) void {
             .target = target,
             .optimize = optimize,
         }),
+        .use_llvm = true,
     });
 
     const run_exe_tests = b.addRunArtifact(exe_tests);
