@@ -151,11 +151,9 @@ fn installZig(allocator: std.mem.Allocator, version_entry: VersionEntry, version
     const home = try getHomeDir(allocator);
     const zigup_dir = try std.fs.path.join(allocator, &.{ home, ".zigup" });
 
-    // 获取当前平台字符串
     const platform_str = try getPlatformString(allocator);
     std.debug.print("Platform: {s}\n", .{platform_str});
 
-    // 获取当前平台的信息
     const platform = version_entry.platforms.get(platform_str) orelse {
         std.debug.print("Error: Platform {s} not supported for version {s}\n", .{ platform_str, version_name });
         return error.PlatformNotSupported;
@@ -331,12 +329,10 @@ fn getSortedVersionNames(allocator: std.mem.Allocator, releases: std.StringHashM
 }
 
 fn findRelease(allocator: std.mem.Allocator, releases: std.StringHashMap(VersionEntry), version: []const u8) !?VersionEntry {
-    // 处理 master/latest 别名
     if (std.mem.eql(u8, version, "master") or std.mem.eql(u8, version, "latest")) {
         return releases.get("master");
     }
 
-    // 处理 stable - 返回最新的非 master 版本
     if (std.mem.eql(u8, version, "stable")) {
         var sorted = try getSortedVersionNames(allocator, releases);
         while (sorted.pop()) |ver| {
@@ -346,7 +342,6 @@ fn findRelease(allocator: std.mem.Allocator, releases: std.StringHashMap(Version
         }
     }
 
-    // 精确版本查找
     return releases.get(version);
 }
 
@@ -455,15 +450,13 @@ fn stringLessThan(_: void, a: []const u8, b: []const u8) bool {
 }
 
 fn versionCompare(_: void, a: []const u8, b: []const u8) bool {
-    // master 始终排在最后
     const a_is_master = std.mem.eql(u8, a, "master");
     const b_is_master = std.mem.eql(u8, b, "master");
 
     if (a_is_master and b_is_master) return false;
-    if (a_is_master) return false; // a 是 master，排在 b 后面
-    if (b_is_master) return true; // b 是 master，a 排在 b 前面
+    if (a_is_master) return false;
+    if (b_is_master) return true;
 
-    // 按版本号比较：分割并逐段比较
     var a_it = std.mem.splitScalar(u8, a, '.');
     var b_it = std.mem.splitScalar(u8, b, '.');
 
@@ -471,14 +464,11 @@ fn versionCompare(_: void, a: []const u8, b: []const u8) bool {
         const a_part = a_it.next();
         const b_part = b_it.next();
 
-        // 如果其中一个结束了
-        if (a_part == null and b_part == null) return false; // 相等
-        if (a_part == null) return true; // a 更短，排前面
-        if (b_part == null) return false; // b 更短，a 排后面
+        if (a_part == null and b_part == null) return false;
+        if (a_part == null) return true;
+        if (b_part == null) return false;
 
-        // 尝试解析为数字比较
         const a_num = std.fmt.parseInt(u32, a_part.?, 10) catch {
-            // 如果不是数字，按字典序比较（处理 dev 等后缀）
             if (std.mem.eql(u8, a_part.?, b_part.?)) continue;
             return std.mem.lessThan(u8, a_part.?, b_part.?);
         };
@@ -488,7 +478,6 @@ fn versionCompare(_: void, a: []const u8, b: []const u8) bool {
 
         if (a_num < b_num) return true;
         if (a_num > b_num) return false;
-        // 相等则继续下一段
     }
 }
 
