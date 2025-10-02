@@ -37,7 +37,7 @@ fn handleInstall(allocator: std.mem.Allocator, args: [][:0]u8, stdout: std.fs.Fi
     var version: []const u8 = "latest";
 
     for (args) |arg| {
-        if (std.mem.eql(u8, arg, "--default")) {
+        if (std.mem.eql(u8, arg, "--default") or std.mem.eql(u8, arg, "-d")) {
             set_default = true;
         } else {
             version = arg;
@@ -88,8 +88,6 @@ fn handleList(allocator: std.mem.Allocator, args: [][:0]u8, stdout: std.fs.File,
 
     if (show_installed) {
         const installed = try listInstalled(allocator);
-
-        try stdout.writeAll("Installed versions:\n");
         if (installed.versions.len == 0) {
             try stdout.writeAll("  (none)\n");
         } else {
@@ -113,8 +111,6 @@ fn handleList(allocator: std.mem.Allocator, args: [][:0]u8, stdout: std.fs.File,
         }
 
         std.mem.sort([]const u8, version_names.items, {}, versionCompare);
-
-        try stdout.writeAll("Available releases:\n");
         for (version_names.items) |version_name| {
             try printToFile(allocator, stdout, "  {s}\n", .{version_name});
         }
@@ -141,7 +137,8 @@ fn installZig(allocator: std.mem.Allocator, version_entry: VersionEntry, version
         return error.PlatformNotSupported;
     };
 
-    const zig_binary_path = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", version_name, PLATFORM, "zig" });
+    const version_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "versions", version_name });
+    const zig_binary_path = try std.fs.path.join(allocator, &.{ version_dir, "zig" });
 
     if (fileExists(zig_binary_path)) {
         if (set_default) try setDefaultZig(allocator, version_name);
@@ -149,18 +146,19 @@ fn installZig(allocator: std.mem.Allocator, version_entry: VersionEntry, version
     }
 
     const archive_filename = try std.fmt.allocPrint(allocator, "zig-{s}-{s}.tar.xz", .{ PLATFORM, version_name });
-    const archive_path = try std.fs.path.join(allocator, &.{ zigup_dir, "cache", "downloads", archive_filename });
+    const cache_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "cache" });
+    const archive_path = try std.fs.path.join(allocator, &.{ cache_dir, archive_filename });
 
     try ensureDir(zigup_dir);
-    try ensureDir(try std.fs.path.join(allocator, &.{ zigup_dir, "cache", "downloads" }));
+    try ensureDir(cache_dir);
 
     if (!fileExists(archive_path)) {
         try downloadFile(allocator, platform.tarball, archive_path);
         try verifyChecksum(allocator, archive_path, platform.shasum);
     }
 
-    const dist_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", version_name });
-    try extractTarXz(allocator, archive_path, dist_dir);
+    try ensureDir(version_dir);
+    try extractTarXz(allocator, archive_path, version_dir);
 
     if (set_default) {
         try setDefaultZig(allocator, version_name);
@@ -173,7 +171,7 @@ fn uninstallZig(allocator: std.mem.Allocator, version: []const u8) !void {
     const home = try getHomeDir(allocator);
     const zigup_dir = try std.fs.path.join(allocator, &.{ home, ".zigup" });
 
-    const version_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", version });
+    const version_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "versions", version });
 
     std.fs.cwd().deleteTree(version_dir) catch |err| switch (err) {
         error.FileSystem => {},
@@ -187,8 +185,8 @@ fn uninstallZig(allocator: std.mem.Allocator, version: []const u8) !void {
     if (current) |c| {
         const trimmed = std.mem.trim(u8, c, " \n\r\t");
         if (std.mem.eql(u8, trimmed, version)) {
-            const shim_path = try std.fs.path.join(allocator, &.{ zigup_dir, "bin", "zig" });
-            std.fs.cwd().deleteFile(shim_path) catch {};
+            const symlink_path = try std.fs.path.join(allocator, &.{ home, ".local", "bin", "zig" });
+            std.fs.cwd().deleteFile(symlink_path) catch {};
             std.fs.cwd().deleteFile(current_file) catch {};
         }
     }
@@ -202,11 +200,11 @@ const InstalledVersions = struct {
 fn listInstalled(allocator: std.mem.Allocator) !InstalledVersions {
     const home = try getHomeDir(allocator);
     const zigup_dir = try std.fs.path.join(allocator, &.{ home, ".zigup" });
-    const dist_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "dist" });
+    const versions_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "versions" });
 
     var versions = std.array_list.AlignedManaged([]const u8, null).init(allocator);
 
-    var dir = std.fs.cwd().openDir(dist_dir, .{ .iterate = true }) catch |err| switch (err) {
+    var dir = std.fs.cwd().openDir(versions_dir, .{ .iterate = true }) catch |err| switch (err) {
         error.FileNotFound => return InstalledVersions{ .versions = try allocator.alloc([]const u8, 0), .default = null },
         else => return err,
     };
@@ -331,19 +329,19 @@ fn setDefaultZig(allocator: std.mem.Allocator, version: []const u8) !void {
     const home = try getHomeDir(allocator);
     const zigup_dir = try std.fs.path.join(allocator, &.{ home, ".zigup" });
 
-    const zig_binary = try std.fs.path.join(allocator, &.{ zigup_dir, "dist", version, PLATFORM, "zig" });
+    const zig_binary = try std.fs.path.join(allocator, &.{ zigup_dir, "versions", version, "zig" });
 
     if (!fileExists(zig_binary)) {
         return error.FileNotFound;
     }
 
-    const bin_dir = try std.fs.path.join(allocator, &.{ zigup_dir, "bin" });
-    try ensureDir(bin_dir);
+    const local_bin = try std.fs.path.join(allocator, &.{ home, ".local", "bin" });
+    try ensureDir(local_bin);
 
-    const shim_path = try std.fs.path.join(allocator, &.{ bin_dir, "zig" });
+    const symlink_path = try std.fs.path.join(allocator, &.{ local_bin, "zig" });
 
-    std.fs.cwd().deleteFile(shim_path) catch {};
-    try std.posix.symlink(zig_binary, shim_path);
+    std.fs.cwd().deleteFile(symlink_path) catch {};
+    try std.posix.symlink(zig_binary, symlink_path);
 
     const current_file = try std.fs.path.join(allocator, &.{ zigup_dir, "current" });
     const file = try std.fs.cwd().createFile(current_file, .{});
@@ -431,7 +429,7 @@ fn versionCompare(_: void, a: []const u8, b: []const u8) bool {
 
     if (a_is_master and b_is_master) return false;
     if (a_is_master) return false; // a 是 master，排在 b 后面
-    if (b_is_master) return true;  // b 是 master，a 排在 b 前面
+    if (b_is_master) return true; // b 是 master，a 排在 b 前面
 
     // 按版本号比较：分割并逐段比较
     var a_it = std.mem.splitScalar(u8, a, '.');
@@ -443,7 +441,7 @@ fn versionCompare(_: void, a: []const u8, b: []const u8) bool {
 
         // 如果其中一个结束了
         if (a_part == null and b_part == null) return false; // 相等
-        if (a_part == null) return true;  // a 更短，排前面
+        if (a_part == null) return true; // a 更短，排前面
         if (b_part == null) return false; // b 更短，a 排后面
 
         // 尝试解析为数字比较

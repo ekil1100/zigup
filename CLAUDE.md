@@ -26,9 +26,22 @@ MVP targets Linux x86_64 with core commands: install, uninstall, list.
 
 **Commands**: `install [version] [--default]`, `uninstall <version>`, `list [-r]`
 
-**Flow**: Fetch index.json → Download tar.xz → Verify SHA256 → Extract → Symlink `~/.zigup/bin/zig`
+**Flow**: Fetch index.json → Download tar.xz → Verify SHA256 → Extract → Symlink `~/.local/bin/zig`
 
-**Directory**: `~/.zigup/{dist/<version>/, bin/, cache/downloads/, cache/index.json, current}`
+**Directory Layout**:
+```
+~/.zigup/
+├── cache/                     # Download cache
+│   ├── index.json             # Version index cache
+│   └── zig-linux-x86_64-*.tar.xz
+├── versions/                  # Installed versions
+│   ├── 0.11.0/zig
+│   ├── 0.13.0/zig
+│   └── master/zig
+└── current                    # Current version (text file)
+
+~/.local/bin/zig -> ~/.zigup/versions/<current>/zig
+```
 
 **External tools**: `curl` (downloads), `tar` (extraction)
 
