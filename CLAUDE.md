@@ -24,7 +24,13 @@ MVP targets Linux x86_64 with core commands: install, uninstall, list.
 - `VersionEntry` - Version metadata + `platforms: StringHashMap(PlatformEntry)`
 - `PlatformEntry` - Platform tarball/shasum/size
 
-**Commands**: `install [version] [--default]`, `uninstall <version>`, `list [-r]`
+**Commands**:
+- `install [version] [-d|--default]` - Install a version (latest/master/stable/specific)
+- `uninstall <version>` - Remove a version
+- `use <version>` - Switch default version
+- `list [-r|--remote]` - List installed or available versions
+
+**Aliases**: `i`=install, `rm`=uninstall, `ls`=list
 
 **Flow**: Fetch index.json → Download tar.xz → Verify SHA256 → Extract → Symlink `~/.local/bin/zig`
 
@@ -47,7 +53,16 @@ MVP targets Linux x86_64 with core commands: install, uninstall, list.
 
 ## Key Implementation Notes
 
-- **Memory**: Arena allocator - no manual deinit needed
+- **Memory**: Arena allocator - no manual deinit needed (CLI pattern)
 - **API lookup**: Check `/home/like/.local/zig/lib/std/` source for latest dev APIs
 - **Version sorting**: `versionCompare()` does semantic versioning, puts master last
 - **JSON parsing**: Dynamic with `std.json.Value`, HashMap stores platform info
+- **Platform detection**: Runtime detection via `@import("builtin")` - supports cross-platform
+- **Output**: `std.debug.print` for all user-facing messages
+- **Version aliases**: `latest`/`stable` (latest non-master), `master` (dev build)
+
+## Testing
+
+- Unit tests for `findRelease()` - version resolution logic
+- Tests use arena allocator to avoid memory leaks
+- Run: `zig build test`
